@@ -17,6 +17,9 @@
 
 #include "convert.h"
 
+constexpr const char* normalTimeStr = "H:MM:SS:CCC";
+constexpr const int normalTimeStrLength = 11;
+
 constexpr const float WIDTH = 500;
 constexpr const float HEIGHT = 300;
 constexpr const char* background_color = "#181818";
@@ -30,9 +33,9 @@ constexpr const float buttonVerticalPadding   = 16.0f;
 constexpr const size_t NORMAL_MONITORS_WIDTH = 1920;
 constexpr const size_t NORMAL_MONITORS_HEIGHT = 1080;
 
-#define START 0
-#define STOP 1
-#define CONTINUE 2
+constexpr const size_t START = 0;
+constexpr const size_t STOP = 1;
+constexpr const size_t CONTINUE = 2;
 
 constexpr const char* buttonText[] = { "Start", "Stop", "Continue" };
 std::string currentButtonText = buttonText[START];
@@ -47,8 +50,14 @@ size_t seconds = 0;
 size_t minutes = 0;
 size_t hours = 0;
 
-void count() {
-    while (!exitThread) {
+void inline LOG(const char* x) {
+    fprintf(stderr, "%s\n", x);
+}
+
+void count(void)
+{
+    while (!exitThread)
+    {
         auto before = std::chrono::steady_clock::now();
 
         std::unique_lock<std::mutex> lock(mtx);
@@ -62,25 +71,31 @@ void count() {
         {
             before = now;
             centiseconds += 1;
-            if (centiseconds == 100) {
-                centiseconds = 0;
-                seconds = seconds + 1;
-                if (seconds == 60)
-                {
-                    seconds = 0;
-                    minutes += 1;
-                    if (minutes == 60) { minutes = 0; hours += 1; }
-                }
-            }
+            if (centiseconds < 100)
+                continue;
 
+            centiseconds = 0;
+            seconds = seconds + 1;
+            if (seconds < 60)
+                continue;
+
+            seconds = 0;
+            minutes += 1;
+
+            if (minutes < 60) 
+                continue;
+
+            minutes = 0;
+            hours += 1; 
         }
     }
 }
 
-inline void changeCurrentText(void) {
-    if (currentButtonText == buttonText[START]) currentButtonText = buttonText[STOP];
-    else if (currentButtonText == buttonText[STOP]) currentButtonText = buttonText[CONTINUE];
-    else if (currentButtonText == buttonText[CONTINUE]) currentButtonText = buttonText[STOP];
+inline void changeCurrentText(void)
+{
+    if (currentButtonText == buttonText[START])          currentButtonText = buttonText[STOP];
+    else if (currentButtonText == buttonText[STOP])      currentButtonText = buttonText[CONTINUE];
+    else if (currentButtonText == buttonText[CONTINUE])  currentButtonText = buttonText[STOP];
 }
 
 void controlKeyboardInput(GLFWwindow* mainWindow, std::thread& theTimerThread)
@@ -119,7 +134,6 @@ void controlKeyboardInput(GLFWwindow* mainWindow, std::thread& theTimerThread)
 
 }
 
-
 // TODO: Fix the broken, scaled(?) and small cursor
 void glfw_error_callback(int error, const char* description) {
     fprintf(stderr, "GLFW ERROR: %d: %s\n", error, description);
@@ -134,7 +148,7 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 
-    glfwWindowHintString(GLFW_WAYLAND_APP_ID, "Cwatch");
+    glfwWindowHintString(GLFW_WAYLAND_APP_ID, "Swatch - A simple Stopwatch");
 
     // Get Primary Monitors Info
     GLFWmonitor* primary = glfwGetPrimaryMonitor();
@@ -145,7 +159,7 @@ int main() {
     if (primaryMonitorsInfo->width >= NORMAL_MONITORS_WIDTH && primaryMonitorsInfo->height >= NORMAL_MONITORS_HEIGHT)
         winScale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor());
 
-    GLFWwindow* window = glfwCreateWindow((int)(WIDTH * winScale), (int)(HEIGHT * winScale), "Cwatch", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow((int)(WIDTH * winScale), (int)(HEIGHT * winScale), "Swatch - Simple Stopwatch", nullptr, nullptr);
     if (!window)  return EXIT_FAILURE;
 
     glfwMakeContextCurrent(window);
@@ -174,13 +188,14 @@ int main() {
     style.Colors[ImGuiCol_Border] = colorV4(borderColor);
     style.Colors[ImGuiCol_WindowBg] = colorV4(background_color, 1.0);
 
-    ImGuiIO& io = ImGui::GetIO();
-    ImFont* jetbrains = io.Fonts->AddFontFromFileTTF("../assests/JetBrainsMonoNerdFont-Regular.ttf",
+    ImGuiIO& appIO = ImGui::GetIO();
+    ImFont* jetbrains = appIO.Fonts->AddFontFromFileTTF("../assests/JetBrainsMonoNerdFont-Regular.ttf",
             fontSizeRate*(primaryMonitorsInfo->height));
 
     // Start the counter thread
     std::thread counterThread (count);
 
+    float timerTextFontSize = 0.0f;
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
@@ -191,7 +206,7 @@ int main() {
 
         // Get rid of that Opengl Window
         ImGui::SetNextWindowPos({0.0f, 0.0f});
-        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::SetNextWindowSize(appIO.DisplaySize);
 
         controlKeyboardInput(window, counterThread);
         ImGui::Begin("Cwatch - Timer", nullptr,
@@ -206,24 +221,67 @@ int main() {
         float winHeight = winSize.y;
 
         // change font size depending on the windowsHeight
-        float fontSize = fontSizeRate*winHeight;
-        ImGui::PushFont(jetbrains, fontSize);
+        timerTextFontSize = fontSizeRate*winHeight;
+        ImGui::PushFont(jetbrains, timerTextFontSize);
 
-        // NOTE: I did not want to do this, but we need this for the button's correct centering
-        std::string stopwatchTime = std::to_string(hours) + ":" + std::to_string(minutes) + ":"
-            + std::to_string(seconds) + ":" + std::to_string(centiseconds);
 
-        ImVec2 timeTextFontDimensions = ImGui::CalcTextSize(stopwatchTime.c_str());
-        ImGui::SetCursorPos({winWidth/2 - (timeTextFontDimensions.x)/2, winHeight/2 - (timeTextFontDimensions.y)/2});
+        std::string stopwatchTime;
+        if (hours <= 9) {
+            stopwatchTime.append("0");
+        }
 
+        stopwatchTime += std::to_string(hours) + ":";
+
+        if (minutes <= 9) {
+            stopwatchTime.append("0");
+        }
+
+        stopwatchTime += std::to_string(minutes) + ":";
+
+        if (seconds <= 9) {
+            stopwatchTime.append("0");
+        }
+
+        stopwatchTime += std::to_string(seconds) + ":";
+
+        if (centiseconds <= 9) {
+            stopwatchTime.append("00");
+        } else if (centiseconds >= 10 || centiseconds <= 99) {
+            stopwatchTime.append("0");
+        }
+
+        stopwatchTime += std::to_string(centiseconds);
+
+        ImVec2 timerTextFontDimensions;
+        if (stopwatchTime.length() <= normalTimeStrLength) {
+            timerTextFontDimensions = ImGui::CalcTextSize(normalTimeStr);
+        } else {
+            timerTextFontDimensions = ImGui::CalcTextSize(stopwatchTime.c_str());
+        }
+
+
+        /* NOTE: Make so the text fits in all width and height of a window */
+        while (timerTextFontDimensions.x > winWidth)
+        {
+
+            ImGui::PopFont();
+            timerTextFontSize -= fontSizeRate;
+            ImGui::PushFont(jetbrains, timerTextFontSize);
+            timerTextFontDimensions = ImGui::CalcTextSize(normalTimeStr);
+
+            if (timerTextFontDimensions.x < winWidth) {
+                break;
+            } 
+        }
+
+        ImGui::SetCursorPos({winWidth/2 - timerTextFontDimensions.x/2, winHeight/2 - (timerTextFontDimensions.y)/2});
         ImGui::PushStyleColor(ImGuiCol_Text, colorV4("#51afef"));
-
-        ImGui::Text("%s", stopwatchTime.c_str());
+        ImGui::TextUnformatted(stopwatchTime.c_str());
 
         ImGui::PopStyleColor();
         ImGui::PopFont();
 
-        ImGui::PushFont(nullptr, fontSize/3);
+        ImGui::PushFont(jetbrains, timerTextFontSize/3);
 
         ImGui::PushStyleColor(ImGuiCol_Text, colorV4("#16161e"));
         ImGui::PushStyleColor(ImGuiCol_Button, colorV4("#98be65"));
@@ -236,7 +294,7 @@ int main() {
         const float buttonHeight = biggestTextSize.y + buttonVerticalPadding;
 
         const float statusButtonPosx = winWidth/2 - biggestTextSize.x - buttonHorizontalPadding/2 - hourPminTextSize.x/3;
-        const float statusButtonPosy = winHeight/2 + (timeTextFontDimensions.y)/2 + biggestTextSize.y/2;
+        const float statusButtonPosy = winHeight/2 + (timerTextFontDimensions.y)/2 + biggestTextSize.y/2;
 
         bool drawButton = true;
         ImGui::SetCursorPos(ImVec2(statusButtonPosx, statusButtonPosy));
